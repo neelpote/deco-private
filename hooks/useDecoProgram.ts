@@ -213,32 +213,39 @@ export function useDecoProgram() {
       wsEndpoint = MAGIC_ROUTER_RPC.replace('https', 'wss');
     }
 
-    // Step 2 — build a provider pointing at the authenticated TEE endpoint
-    const teeConn = new web3.Connection(endpoint, {
-      wsEndpoint,
+    // Step 2 — build provider for castVote
+    // Use devnet-router which auto-routes to the correct ER validator
+    // TEE auth token is obtained for privacy but tx goes through router for correct delegation routing
+    const routerConn = new web3.Connection(MAGIC_ROUTER_RPC, {
+      wsEndpoint: MAGIC_ROUTER_RPC.replace('https', 'wss'),
       commitment: 'confirmed',
     });
-    const teeProvider = new AnchorProvider(teeConn, wallet as any, { commitment: 'confirmed' });
-    const teeProgram  = new Program(IDL_JSON as any, teeProvider);
+    const routerProvider = new AnchorProvider(routerConn, wallet as any, { commitment: 'confirmed' });
+    const routerProgram  = new Program(IDL_JSON as any, routerProvider);
 
     const pda = getMemberVotePda(roundId, wallet.publicKey);
     const grantRoundPda = getGrantRoundPda(roundId);
 
-    // Step 3 — poll until the TEE can see the delegated memberVote account (max 15s)
-    if (teeAuthenticated) {
-      for (let i = 0; i < 15; i++) {
-        const info = await teeConn.getAccountInfo(pda);
-        if (info) { console.log('[deco] TEE sees memberVote after', i + 1, 'attempts'); break; }
-        await new Promise(r => setTimeout(r, 1000));
+    // Fetch blockhash from the router connection
+    const { blockhash, lastValidBlockHeight } = await routerConn.getLatestBlockhash('confirmed');
+    let tx: string;
+    try {
+      tx = await (routerProgram.methods as any)
+        .castVote(new BN(roundId), projectPubkey)
+        .accounts({ memberVote: pda, grantRound: grantRoundPda, voter: wallet.publicKey })
+        .rpc({ blockhash, lastValidBlockHeight });
+    } catch (err: any) {
+      if (err?.getLogs) {
+        const logs = await err.getLogs(routerConn);
+        console.error('[deco] castVote logs:', logs);
+        throw new Error(logs?.join('\n') || err.message);
       }
+      if (err?.logs) {
+        console.error('[deco] castVote simulation logs:', err.logs);
+        throw new Error(err.logs.join('\n') || err.message);
+      }
+      throw err;
     }
-
-    // Fetch blockhash from the same connection the transaction will be sent through.
-    const { blockhash, lastValidBlockHeight } = await teeConn.getLatestBlockhash('confirmed');
-    const tx = await (teeProgram.methods as any)
-      .castVote(new BN(roundId), projectPubkey)
-      .accounts({ memberVote: pda, grantRound: grantRoundPda, voter: wallet.publicKey })
-      .rpc({ blockhash, lastValidBlockHeight });
     console.log(`castVote tx (${teeAuthenticated ? 'TEE' : 'router fallback'}):`, tx);
     return { teeAuthenticated };
   }, [wallet]);
