@@ -202,13 +202,15 @@ export function useDecoProgram() {
     let wsEndpoint = TEE_RPC.replace('https', 'wss');
     let teeAuthenticated = false;
     try {
-      const token = await getAuthToken(TEE_RPC, wallet.publicKey, wallet.signMessage.bind(wallet));
+      const { token } = await getAuthToken(TEE_RPC, wallet.publicKey, wallet.signMessage.bind(wallet));
       endpoint    = `${TEE_RPC}?token=${token}`;
       wsEndpoint  = `${TEE_RPC.replace('https', 'wss')}?token=${token}`;
       teeAuthenticated = true;
       console.log('[deco] TEE auth token obtained successfully');
     } catch (e) {
-      console.warn('[deco] TEE auth failed, using unauthenticated TEE:', e);
+      console.warn('[deco] TEE auth failed, falling back to devnet router:', e);
+      endpoint   = MAGIC_ROUTER_RPC;
+      wsEndpoint = MAGIC_ROUTER_RPC.replace('https', 'wss');
     }
 
     // Step 2 — build a provider pointing at the authenticated TEE endpoint
