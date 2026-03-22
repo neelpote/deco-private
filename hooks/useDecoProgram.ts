@@ -170,7 +170,7 @@ export function useDecoProgram() {
     let wsEndpoint = TEE_RPC.replace('https', 'wss');
     let teeAuthenticated = false;
     try {
-      const token = await getAuthToken(TEE_RPC, wallet.publicKey, wallet.signMessage.bind(wallet));
+      const { token } = await getAuthToken(TEE_RPC, wallet.publicKey, wallet.signMessage.bind(wallet));
       endpoint    = `${TEE_RPC}?token=${token}`;
       wsEndpoint  = `${TEE_RPC.replace('https', 'wss')}?token=${token}`;
       teeAuthenticated = true;
