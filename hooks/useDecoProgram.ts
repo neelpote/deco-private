@@ -235,14 +235,10 @@ export function useDecoProgram() {
         .accounts({ memberVote: pda, grantRound: grantRoundPda, voter: wallet.publicKey })
         .rpc({ blockhash, lastValidBlockHeight });
     } catch (err: any) {
-      if (err?.getLogs) {
-        const logs = await err.getLogs(routerConn);
-        console.error('[deco] castVote logs:', logs);
-        throw new Error(logs?.join('\n') || err.message);
-      }
-      if (err?.logs) {
-        console.error('[deco] castVote simulation logs:', err.logs);
-        throw new Error(err.logs.join('\n') || err.message);
+      const logs = err?.logs ?? err?.simulationResponse?.logs ?? [];
+      if (logs.length) {
+        console.error('[deco] castVote simulation logs:', logs);
+        throw new Error(logs.join('\n'));
       }
       throw err;
     }
