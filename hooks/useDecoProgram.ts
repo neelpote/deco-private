@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { PublicKey, SystemProgram, TransactionInstruction, Transaction } from '@solana/web3.js';
 import { AnchorProvider, Program, BN, web3 } from '@coral-xyz/anchor';
 import { getAuthToken } from '@magicblock-labs/ephemeral-rollups-sdk';
 import IDL_JSON from '../idl/deco_private.json';
@@ -9,6 +9,7 @@ export const PROGRAM_ID         = '4TocTt21C8CYTGCjP7BgynrL8kQSn2zTHbMhSyB5hivX'
 export const DELEGATION_PROGRAM = 'DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh';
 export const TEE_RPC            = 'https://tee.magicblock.app';
 export const MAGIC_ROUTER_RPC   = 'https://devnet-router.magicblock.app';
+export const MEMO_PROGRAM_ID    = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 const DELEGATION_PROGRAM_ID = new PublicKey(DELEGATION_PROGRAM);
 const GRANT_ROUND_SEED      = Buffer.from('grant_round');
 const MEMBER_VOTE_SEED      = Buffer.from('member_vote');
@@ -72,16 +73,37 @@ export function useDecoProgram() {
     catch (e) { console.error('routerProgram init failed:', e); return null; }
   }, [routerProvider]);
 
-  const createGrantRound = useCallback(async (roundId: number) => {
-    if (!baseProgram || !wallet.publicKey) throw new Error('Wallet not connected');
+  const createGrantRound = useCallback(async (roundId: number, meta?: Record<string, any>) => {
+    if (!baseProgram || !wallet.publicKey || !baseProvider) throw new Error('Wallet not connected');
     const pda = getGrantRoundPda(roundId);
-    const tx = await (baseProgram.methods as any)
+
+    // Build the Anchor instruction manually so we can add a memo in the same tx
+    const anchorIx = await (baseProgram.methods as any)
       .createGrantRound(new BN(roundId))
       .accounts({ grantRound: pda, authority: wallet.publicKey, systemProgram: SystemProgram.programId })
-      .rpc();
-    console.log('createGrantRound tx:', tx);
-    return tx;
-  }, [baseProgram, wallet.publicKey]);
+      .instruction();
+
+    const tx = new Transaction().add(anchorIx);
+
+    // Attach metadata as a memo so any device can read it back from tx history
+    if (meta) {
+      const memoData = JSON.stringify({ deco: 1, roundId, ...meta });
+      tx.add(new TransactionInstruction({
+        keys: [{ pubkey: wallet.publicKey, isSigner: true, isWritable: false }],
+        programId: MEMO_PROGRAM_ID,
+        data: Buffer.from(memoData, 'utf-8'),
+      }));
+    }
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = wallet.publicKey;
+    const signed = await baseProvider.wallet.signTransaction(tx);
+    const sig = await connection.sendRawTransaction(signed.serialize());
+    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+    console.log('createGrantRound tx:', sig);
+    return sig;
+  }, [baseProgram, baseProvider, wallet.publicKey, connection]);
 
   const initMemberVote = useCallback(async (roundId: number) => {
     if (!baseProgram || !wallet.publicKey) throw new Error('Wallet not connected');
@@ -226,6 +248,33 @@ export function useDecoProgram() {
     } catch { return []; }
   }, [baseProgram, connection]);
 
+  // Fetch grant metadata from on-chain memo instructions in tx history
+  const fetchGrantMeta = useCallback(async (): Promise<Record<number, any>> => {
+    try {
+      const sigs = await connection.getSignaturesForAddress(programId, { limit: 100 });
+      const meta: Record<number, any> = {};
+      for (const sigInfo of sigs) {
+        try {
+          const tx = await connection.getParsedTransaction(sigInfo.signature, { maxSupportedTransactionVersion: 0 });
+          if (!tx?.transaction?.message?.instructions) continue;
+          for (const ix of tx.transaction.message.instructions) {
+            // Memo instructions are parsed with program id and parsed.memo
+            if ('parsed' in ix && typeof (ix as any).parsed === 'string') {
+              try {
+                const data = JSON.parse((ix as any).parsed);
+                if (data.deco === 1 && data.roundId) {
+                  const { deco: _, roundId, ...rest } = data;
+                  meta[roundId] = rest;
+                }
+              } catch { /* not a deco memo */ }
+            }
+          }
+        } catch { /* skip failed tx */ }
+      }
+      return meta;
+    } catch { return {}; }
+  }, [connection]);
+
   const fetchMyVotes = useCallback(async () => {
     if (!baseProgram || !wallet.publicKey) return [];
     try {
@@ -272,6 +321,7 @@ export function useDecoProgram() {
     castVote,
     commitVote,
     fetchAllGrantRounds,
+    fetchGrantMeta,
     fetchMyVotes,
     hasVoted,
   };
