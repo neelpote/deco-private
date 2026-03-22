@@ -1,0 +1,163 @@
+{
+  "address": "4TocTt21C8CYTGCjP7BgynrL8kQSn2zTHbMhSyB5hivX",
+  "metadata": {
+    "name": "deco_private",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Deco Private - Privacy-first decentralized startup accelerator"
+  },
+  "instructions": [
+    {
+      "name": "create_grant_round",
+      "discriminator": [178, 206, 10, 217, 100, 94, 125, 197],
+      "accounts": [
+        {
+          "name": "grant_round",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [103, 114, 97, 110, 116, 95, 114, 111, 117, 110, 100] },
+              { "kind": "arg", "path": "round_id" }
+            ]
+          }
+        },
+        { "name": "authority", "writable": true, "signer": true },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": [{ "name": "round_id", "type": "u64" }]
+    },
+    {
+      "name": "init_member_vote",
+      "discriminator": [19, 154, 252, 117, 194, 161, 93, 172],
+      "accounts": [
+        {
+          "name": "member_vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [109, 101, 109, 98, 101, 114, 95, 118, 111, 116, 101] },
+              { "kind": "arg", "path": "round_id" },
+              { "kind": "account", "path": "voter" }
+            ]
+          }
+        },
+        { "name": "voter", "writable": true, "signer": true },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": [{ "name": "round_id", "type": "u64" }]
+    },
+    {
+      "name": "cast_vote",
+      "discriminator": [20, 212, 15, 189, 69, 180, 69, 151],
+      "accounts": [
+        {
+          "name": "member_vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [109, 101, 109, 98, 101, 114, 95, 118, 111, 116, 101] },
+              { "kind": "arg", "path": "round_id" },
+              { "kind": "account", "path": "voter" }
+            ]
+          }
+        },
+        {
+          "name": "grant_round",
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [103, 114, 97, 110, 116, 95, 114, 111, 117, 110, 100] },
+              { "kind": "arg", "path": "round_id" }
+            ]
+          }
+        },
+        { "name": "voter", "signer": true }
+      ],
+      "args": [
+        { "name": "round_id", "type": "u64" },
+        { "name": "project_pubkey", "type": "pubkey" }
+      ]
+    },
+    {
+      "name": "delegate_grant_round",
+      "discriminator": [7, 132, 13, 180, 3, 182, 162, 45],
+      "accounts": [
+        { "name": "buffer_pda", "writable": true },
+        { "name": "delegation_record_pda", "writable": true },
+        { "name": "delegation_metadata_pda", "writable": true },
+        { "name": "pda", "writable": true },
+        { "name": "payer", "writable": true, "signer": true },
+        { "name": "validator", "optional": true },
+        { "name": "owner_program", "address": "4TocTt21C8CYTGCjP7BgynrL8kQSn2zTHbMhSyB5hivX" },
+        { "name": "delegation_program", "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh" },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": [{ "name": "round_id", "type": "u64" }]
+    },
+    {
+      "name": "delegate_member_vote",
+      "discriminator": [69, 99, 206, 66, 152, 205, 201, 56],
+      "accounts": [
+        { "name": "buffer_pda", "writable": true },
+        { "name": "delegation_record_pda", "writable": true },
+        { "name": "delegation_metadata_pda", "writable": true },
+        { "name": "pda", "writable": true },
+        { "name": "payer", "writable": true, "signer": true },
+        { "name": "validator", "optional": true },
+        { "name": "owner_program", "address": "4TocTt21C8CYTGCjP7BgynrL8kQSn2zTHbMhSyB5hivX" },
+        { "name": "delegation_program", "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh" },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": [{ "name": "round_id", "type": "u64" }]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [196, 28, 41, 206, 48, 37, 51, 167],
+      "accounts": [
+        { "name": "base_account", "writable": true },
+        { "name": "buffer" },
+        { "name": "payer", "writable": true },
+        { "name": "system_program" }
+      ],
+      "args": [{ "name": "account_seeds", "type": { "vec": "bytes" } }]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GrantRound",
+      "discriminator": [57, 109, 151, 14, 8, 69, 188, 47]
+    },
+    {
+      "name": "MemberVote",
+      "discriminator": [211, 123, 133, 175, 95, 47, 54, 106]
+    }
+  ],
+  "errors": [
+    { "code": 6000, "name": "AlreadyVoted", "msg": "You have already cast your vote." },
+    { "code": 6001, "name": "RoundNotActive", "msg": "Grant round is not active." }
+  ],
+  "types": [
+    {
+      "name": "GrantRound",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "round_id", "type": "u64" },
+          { "name": "is_active", "type": "bool" },
+          { "name": "winner", "type": { "option": "pubkey" } },
+          { "name": "authority", "type": "pubkey" }
+        ]
+      }
+    },
+    {
+      "name": "MemberVote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "round_id", "type": "u64" },
+          { "name": "voter", "type": "pubkey" },
+          { "name": "voted_for", "type": { "option": "pubkey" } }
+        ]
+      }
+    }
+  ]
+}
