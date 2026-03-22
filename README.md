@@ -16,18 +16,7 @@
 
 </div>
 
-## 📖 Table of Contents
-- [The Problem: "The Cap Table Panopticon"](#-the-problem-the-cap-table-panopticon)
-- [The Solution: Deco Private](#-the-solution-deco-private)
-- [Target Hackathon Tracks](#-target-hackathon-tracks)
-- [Platform Features (By Persona)](#-platform-features-by-persona)
-- [Deep Dive: MagicBlock Architecture](#-deep-dive-magicblock-architecture)
-- [Comprehensive Tech Stack](#-comprehensive-tech-stack)
-- [Local Development Quickstart](#-local-development-quickstart)
-- [Important Note for Judges (Privacy Track)](#-important-note-for-judges-privacy-track)
-- [Deployed Contracts](#-deployed-contracts)
-
----
+Live Link--   https://deco-private.vercel.app/
 
 ## 💡 The Problem: "The Cap Table Panopticon"
 
