@@ -779,6 +779,7 @@ const App: React.FC = () => {
   const [portfolioOpen, setPortfolioOpen] = useState(false);
   const [grantMeta, setGrantMeta]         = useState<Record<number, GrantMeta>>(loadAllMeta);
   const [voteCounts, setVoteCounts]       = useState<Record<number, number>>(loadVoteCounts);
+  const [isDelegated, setIsDelegated]     = useState(() => localStorage.getItem('deco_delegated') === 'true');
 
   // Submit form state
   const [submitName, setSubmitName]         = useState('');
@@ -835,6 +836,8 @@ const App: React.FC = () => {
     setLoading('delegate');
     try {
       for (const r of grantRounds) await decoProgram.delegateGrantRound(r.roundId.toNumber());
+      localStorage.setItem('deco_delegated', 'true');
+      setIsDelegated(true);
       showToast('✅ Grant round PDAs delegated to MagicBlock ER.');
     } catch (e: any) { showToast('❌ Delegation failed: ' + e.message); }
     finally { setLoading(null); }
@@ -868,8 +871,13 @@ const App: React.FC = () => {
     if (!submitName || !submitPubkey) { showToast('Project name and wallet address are required.'); return; }
     setLoading('submit');
     try {
-      const nextId = grantRounds.length + 1;
+      // Use timestamp-based ID to guarantee no collision with delegated PDAs
+      const nextId = Date.now() % 1_000_000; // 6-digit unique ID
       await decoProgram.createGrantRound(nextId);
+      // Track this round ID so fetchAllGrantRounds can find it even after delegation
+      const knownIds: number[] = JSON.parse(localStorage.getItem('deco_round_ids') || '[]');
+      knownIds.push(nextId);
+      localStorage.setItem('deco_round_ids', JSON.stringify(knownIds));
       const meta: GrantMeta = { name: submitName, desc: submitDesc, founder: submitFounder, twitter: submitTwitter, gitRepo: submitGitRepo, imageUrl: submitImageUrl, walletAddress: submitPubkey, askAmount: submitAskAmt };
       saveMeta(nextId, meta);
       setGrantMeta(loadAllMeta());
@@ -909,9 +917,9 @@ const App: React.FC = () => {
           <button onClick={() => navigate('grants')} className={`hover:text-stone-900 transition-colors uppercase ${page === 'grants' ? 'text-stone-900 font-bold' : ''}`}>Active Grants</button>
           <button onClick={() => navigate('vc')} className={`hover:text-stone-900 transition-colors uppercase ${page === 'vc' ? 'text-stone-900 font-bold' : ''}`}>VC</button>
           <a href="#submit" onClick={scrollToSection('submit')} className="hover:text-stone-900 transition-colors uppercase">Submit</a>
-          <button onClick={handleDelegateTEE} disabled={loading === 'delegate'}
-            className="px-5 py-2 bg-stone-900 text-white rounded-full hover:bg-stone-800 transition-colors shadow-sm disabled:opacity-50 text-sm">
-            {loading === 'delegate' ? 'Delegating...' : 'Delegate to TEE'}
+          <button onClick={handleDelegateTEE} disabled={loading === 'delegate' || isDelegated}
+            className={`px-5 py-2 rounded-full transition-colors shadow-sm disabled:opacity-50 text-sm font-bold flex items-center gap-2 ${isDelegated ? 'bg-emerald-600 text-white cursor-default' : 'bg-stone-900 text-white hover:bg-stone-800'}`}>
+            {loading === 'delegate' ? 'Delegating...' : isDelegated ? '🔒 TEE Active' : 'Delegate to TEE'}
           </button>
           <WalletMultiButton style={{ height: '36px', borderRadius: '9999px', fontSize: '13px', padding: '0 16px', background: connected ? '#16a34a' : GOLD }} />
         </div>

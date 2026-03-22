@@ -2,61 +2,13 @@ import { useCallback, useMemo } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { AnchorProvider, Program, BN, web3 } from '@coral-xyz/anchor';
+import { getAuthToken } from '@magicblock-labs/ephemeral-rollups-sdk';
 import IDL_JSON from '../idl/deco_private.json';
 
 export const PROGRAM_ID         = '4TocTt21C8CYTGCjP7BgynrL8kQSn2zTHbMhSyB5hivX';
 export const DELEGATION_PROGRAM = 'DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh';
-export const MAGIC_ROUTER_RPC   = 'https://devnet-router.magicblock.app';
 export const TEE_RPC            = 'https://tee.magicblock.app';
-
-const MAGIC_ROUTER_WS       = 'wss://devnet-router.magicblock.app';
-
-// ── TEE AuthToken flow ────────────────────────────────────────────────────────
-// Implements the MagicBlock challenge/sign/token handshake.
-// Falls back to the devnet router if the TEE endpoint is unreachable.
-export async function getTeeAuthToken(
-  pubkey: PublicKey,
-  signMessage: (msg: Uint8Array) => Promise<Uint8Array>,
-): Promise<{ token: string; endpoint: string; wsEndpoint: string }> {
-  try {
-    // 1. Request a challenge nonce from the TEE
-    const challengeRes = await fetch(
-      `${TEE_RPC}/auth/challenge?pubkey=${pubkey.toBase58()}`,
-      { signal: AbortSignal.timeout(5000) },
-    );
-    if (!challengeRes.ok) throw new Error('TEE challenge failed');
-    const { challenge } = await challengeRes.json() as { challenge: string };
-
-    // 2. Sign the challenge bytes with the user's wallet
-    const msgBytes = new TextEncoder().encode(challenge);
-    const signature = await signMessage(msgBytes);
-    const sigBase64 = btoa(String.fromCharCode(...signature));
-
-    // 3. Exchange pubkey + signature for an auth token
-    const tokenRes = await fetch(`${TEE_RPC}/auth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pubkey: pubkey.toBase58(), signature: sigBase64 }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!tokenRes.ok) throw new Error('TEE token exchange failed');
-    const { token } = await tokenRes.json() as { token: string };
-
-    return {
-      token,
-      endpoint:   `${TEE_RPC}?token=${token}`,
-      wsEndpoint: `${TEE_RPC.replace('https', 'wss')}?token=${token}`,
-    };
-  } catch {
-    // TEE unreachable — fall back to the public devnet router
-    console.warn('[deco] TEE endpoint unreachable, falling back to devnet router');
-    return {
-      token:      'devnet-fallback',
-      endpoint:   MAGIC_ROUTER_RPC,
-      wsEndpoint: MAGIC_ROUTER_WS,
-    };
-  }
-}
+export const MAGIC_ROUTER_RPC   = 'https://devnet-router.magicblock.app';
 const DELEGATION_PROGRAM_ID = new PublicKey(DELEGATION_PROGRAM);
 const GRANT_ROUND_SEED      = Buffer.from('grant_round');
 const MEMBER_VOTE_SEED      = Buffer.from('member_vote');
@@ -98,11 +50,11 @@ export function useDecoProgram() {
   const routerProvider = useMemo(() => {
     if (!wallet.publicKey || !wallet.signTransaction) return null;
     try {
-      const routerConn = new web3.Connection(MAGIC_ROUTER_RPC, {
-        wsEndpoint: MAGIC_ROUTER_WS,
+      const teeConn = new web3.Connection(TEE_RPC, {
+        wsEndpoint: TEE_RPC.replace('https', 'wss'),
         commitment: 'confirmed',
       });
-      return new AnchorProvider(routerConn, wallet as any, { commitment: 'confirmed' });
+      return new AnchorProvider(teeConn, wallet as any, { commitment: 'confirmed' });
     } catch {
       return new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
     }
@@ -147,9 +99,22 @@ export function useDecoProgram() {
     return tx;
   }, [baseProgram, wallet.publicKey]);
 
+  const isAlreadyDelegated = useCallback(async (accountPda: PublicKey): Promise<boolean> => {
+    try {
+      const { delegationRecordPda } = getDelegationPdas(accountPda);
+      const info = await connection.getAccountInfo(delegationRecordPda);
+      return info !== null;
+    } catch { return false; }
+  }, [connection]);
+
   const delegateMemberVote = useCallback(async (roundId: number) => {
     if (!baseProgram || !wallet.publicKey) throw new Error('Wallet not connected');
     const pda = getMemberVotePda(roundId, wallet.publicKey);
+    // Skip if already delegated — prevents wallet popup loop
+    if (await isAlreadyDelegated(pda)) {
+      console.log('MemberVote already delegated, skipping');
+      return null;
+    }
     const { bufferPda, delegationRecordPda, delegationMetadataPda } = getDelegationPdas(pda);
     const tx = await (baseProgram.methods as any)
       .delegateMemberVote(new BN(roundId))
@@ -167,11 +132,16 @@ export function useDecoProgram() {
       .rpc();
     console.log('delegateMemberVote tx:', tx);
     return tx;
-  }, [baseProgram, wallet.publicKey]);
+  }, [baseProgram, wallet.publicKey, isAlreadyDelegated]);
 
   const delegateGrantRound = useCallback(async (roundId: number) => {
     if (!baseProgram || !wallet.publicKey) throw new Error('Wallet not connected');
     const pda = getGrantRoundPda(roundId);
+    // Skip if already delegated — prevents wallet popup loop
+    if (await isAlreadyDelegated(pda)) {
+      console.log('GrantRound already delegated, skipping');
+      return null;
+    }
     const { bufferPda, delegationRecordPda, delegationMetadataPda } = getDelegationPdas(pda);
     const tx = await (baseProgram.methods as any)
       .delegateGrantRound(new BN(roundId))
@@ -189,20 +159,27 @@ export function useDecoProgram() {
       .rpc();
     console.log('delegateGrantRound tx:', tx);
     return tx;
-  }, [baseProgram, wallet.publicKey]);
+  }, [baseProgram, wallet.publicKey, isAlreadyDelegated]);
 
   const castVote = useCallback(async (roundId: number, projectPubkey: PublicKey): Promise<{ teeAuthenticated: boolean }> => {
     if (!wallet.publicKey) throw new Error('Wallet not connected');
     if (!wallet.signMessage) throw new Error('Wallet does not support signMessage');
 
-    // Step 1 — get TEE auth token (prompts wallet for message signature)
-    const { token, endpoint, wsEndpoint } = await getTeeAuthToken(
-      wallet.publicKey,
-      wallet.signMessage.bind(wallet),
-    );
-    const teeAuthenticated = token !== 'devnet-fallback';
+    // Step 1 — get TEE auth token via official MagicBlock SDK
+    let endpoint = TEE_RPC;
+    let wsEndpoint = TEE_RPC.replace('https', 'wss');
+    let teeAuthenticated = false;
+    try {
+      const token = await getAuthToken(TEE_RPC, wallet.publicKey, wallet.signMessage.bind(wallet));
+      endpoint    = `${TEE_RPC}?token=${token}`;
+      wsEndpoint  = `${TEE_RPC.replace('https', 'wss')}?token=${token}`;
+      teeAuthenticated = true;
+      console.log('[deco] TEE auth token obtained successfully');
+    } catch (e) {
+      console.warn('[deco] TEE auth failed, using unauthenticated TEE:', e);
+    }
 
-    // Step 2 — build a provider pointing at the authenticated endpoint
+    // Step 2 — build a provider pointing at the authenticated TEE endpoint
     const teeConn = new web3.Connection(endpoint, {
       wsEndpoint,
       commitment: 'confirmed',
@@ -225,15 +202,29 @@ export function useDecoProgram() {
   const fetchAllGrantRounds = useCallback(async () => {
     if (!baseProgram) return [];
     try {
-      const all = await (baseProgram.account as any).grantRound.all();
-      return all.map((r: any) => ({
+      // Fetch rounds owned by our program (undelegated)
+      const ours = await (baseProgram.account as any).grantRound.all();
+      const ourMapped = ours.map((r: any) => ({
         pubkey: r.publicKey as PublicKey,
         roundId: r.account.roundId,
         isActive: r.account.isActive,
         winner: r.account.winner,
       }));
+      // Also check delegated PDAs — scan known IDs stored in localStorage
+      const knownIds: number[] = JSON.parse(localStorage.getItem('deco_round_ids') || '[]');
+      const ourIdSet = new Set(ourMapped.map((r: any) => r.roundId.toNumber()));
+      for (const id of knownIds) {
+        if (ourIdSet.has(id)) continue;
+        // Check if this PDA is owned by delegation program (delegated)
+        const pda = getGrantRoundPda(id);
+        const info = await connection.getAccountInfo(pda);
+        if (info) {
+          ourMapped.push({ pubkey: pda, roundId: { toNumber: () => id }, isActive: true, winner: null });
+        }
+      }
+      return ourMapped;
     } catch { return []; }
-  }, [baseProgram]);
+  }, [baseProgram, connection]);
 
   const fetchMyVotes = useCallback(async () => {
     if (!baseProgram || !wallet.publicKey) return [];
