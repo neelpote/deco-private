@@ -222,12 +222,22 @@ export function useDecoProgram() {
     const teeProgram  = new Program(IDL_JSON as any, teeProvider);
 
     const pda = getMemberVotePda(roundId, wallet.publicKey);
+    const grantRoundPda = getGrantRoundPda(roundId);
+
+    // Step 3 — poll until the TEE can see the delegated memberVote account (max 15s)
+    if (teeAuthenticated) {
+      for (let i = 0; i < 15; i++) {
+        const info = await teeConn.getAccountInfo(pda);
+        if (info) { console.log('[deco] TEE sees memberVote after', i + 1, 'attempts'); break; }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
 
     // Fetch blockhash from the same connection the transaction will be sent through.
     const { blockhash, lastValidBlockHeight } = await teeConn.getLatestBlockhash('confirmed');
     const tx = await (teeProgram.methods as any)
       .castVote(new BN(roundId), projectPubkey)
-      .accounts({ memberVote: pda, grantRound: getGrantRoundPda(roundId), voter: wallet.publicKey })
+      .accounts({ memberVote: pda, grantRound: grantRoundPda, voter: wallet.publicKey })
       .rpc({ blockhash, lastValidBlockHeight });
     console.log(`castVote tx (${teeAuthenticated ? 'TEE' : 'router fallback'}):`, tx);
     return { teeAuthenticated };
