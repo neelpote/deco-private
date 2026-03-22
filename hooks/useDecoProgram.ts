@@ -75,11 +75,21 @@ export function useDecoProgram() {
 
   const createGrantRound = useCallback(async (roundId: number, meta?: Record<string, any>) => {
     if (!baseProgram || !wallet.publicKey || !baseProvider) throw new Error('Wallet not connected');
-    const pda = getGrantRoundPda(roundId);
+
+    // Find a free PDA — skip any roundId whose PDA already exists on-chain
+    let freeId = roundId;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const pda = getGrantRoundPda(freeId);
+      const info = await connection.getAccountInfo(pda);
+      if (!info) break; // PDA doesn't exist — safe to use
+      freeId = (Date.now() + attempt + 1) % 1_000_000;
+    }
+
+    const pda = getGrantRoundPda(freeId);
 
     // Build the Anchor instruction manually so we can add a memo in the same tx
     const anchorIx = await (baseProgram.methods as any)
-      .createGrantRound(new BN(roundId))
+      .createGrantRound(new BN(freeId))
       .accounts({ grantRound: pda, authority: wallet.publicKey, systemProgram: SystemProgram.programId })
       .instruction();
 
@@ -87,7 +97,7 @@ export function useDecoProgram() {
 
     // Attach metadata as a memo so any device can read it back from tx history
     if (meta) {
-      const memoData = JSON.stringify({ deco: 1, roundId, ...meta });
+      const memoData = JSON.stringify({ deco: 1, roundId: freeId, ...meta });
       tx.add(new TransactionInstruction({
         keys: [{ pubkey: wallet.publicKey, isSigner: true, isWritable: false }],
         programId: MEMO_PROGRAM_ID,
@@ -102,7 +112,7 @@ export function useDecoProgram() {
     const sig = await connection.sendRawTransaction(signed.serialize());
     await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
     console.log('createGrantRound tx:', sig);
-    return sig;
+    return { sig, roundId: freeId };
   }, [baseProgram, baseProvider, wallet.publicKey, connection]);
 
   const initMemberVote = useCallback(async (roundId: number) => {

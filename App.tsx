@@ -881,14 +881,14 @@ const App: React.FC = () => {
       // Use timestamp-based ID to guarantee no collision with delegated PDAs
       const nextId = Date.now() % 1_000_000; // 6-digit unique ID
       const meta: GrantMeta = { name: submitName, desc: submitDesc, founder: submitFounder, twitter: submitTwitter, gitRepo: submitGitRepo, imageUrl: submitImageUrl, walletAddress: submitPubkey, askAmount: submitAskAmt };
-      await decoProgram.createGrantRound(nextId, { name: submitName, desc: submitDesc, founder: submitFounder, twitter: submitTwitter, gitRepo: submitGitRepo, walletAddress: submitPubkey, askAmount: submitAskAmt });
+      const { roundId: confirmedId } = await decoProgram.createGrantRound(nextId, { name: submitName, desc: submitDesc, founder: submitFounder, twitter: submitTwitter, gitRepo: submitGitRepo, walletAddress: submitPubkey, askAmount: submitAskAmt });
       // Track this round ID so fetchAllGrantRounds can find it even after delegation
       const knownIds: number[] = JSON.parse(localStorage.getItem('deco_round_ids') || '[]');
-      knownIds.push(nextId);
+      knownIds.push(confirmedId);
       localStorage.setItem('deco_round_ids', JSON.stringify(knownIds));
-      saveMeta(nextId, meta);
+      saveMeta(confirmedId, meta);
       setGrantMeta(loadAllMeta());
-      showToast('✅ Grant round created for ' + submitName + ' (Round #' + nextId + ')');
+      showToast('✅ Grant round created for ' + submitName + ' (Round #' + confirmedId + ')');
       setSubmitName(''); setSubmitDesc(''); setSubmitPubkey(''); setSubmitGitRepo('');
       setSubmitFounder(''); setSubmitTwitter(''); setSubmitAskAmt(''); setSubmitImageUrl(null);
       const rounds = await decoProgram.fetchAllGrantRounds();
