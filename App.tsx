@@ -55,25 +55,14 @@ function loadAllMeta(): Record<number, GrantMeta> {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     const result: Record<number, GrantMeta> = {};
-    for (const k of Object.keys(raw)) {
-      result[Number(k)] = raw[k];
-      const img = localStorage.getItem(`deco_img_${k}`);
-      if (img) result[Number(k)].imageUrl = img;
-    }
+    for (const k of Object.keys(raw)) result[Number(k)] = raw[k];
     return result;
   } catch { return {}; }
 }
 function saveMeta(roundId: number, meta: GrantMeta) {
-  // Store image separately to avoid quota issues with base64 data
-  const { imageUrl, ...rest } = meta;
-  if (imageUrl) {
-    try { localStorage.setItem(`deco_img_${roundId}`, imageUrl); } catch { /* image too large, skip */ }
-  }
   const all = loadAllMeta();
-  all[roundId] = { ...rest, imageUrl: undefined };
-  const lean: Record<number, any> = {};
-  for (const k of Object.keys(all)) lean[k] = { ...all[k], imageUrl: undefined };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(lean));
+  all[roundId] = meta;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
 function clearAllMeta() { localStorage.removeItem(STORAGE_KEY); }
 
@@ -819,15 +808,8 @@ const App: React.FC = () => {
         const voted: Record<number, boolean> = {};
         for (const v of votes as VoteData[]) voted[v.roundId.toNumber()] = true;
         setVotedRounds(voted);
-        // Merge on-chain memo metadata with localStorage (localStorage wins for images)
-        const chainMeta = await decoProgram.fetchGrantMeta();
-        const localMeta = loadAllMeta();
-        const merged: Record<number, GrantMeta> = { ...chainMeta };
-        for (const id in localMeta) {
-          merged[id] = { ...chainMeta[id], ...localMeta[id] };
-        }
-        setGrantMeta(merged);
       } catch { /* not deployed yet */ }
+      setGrantMeta(loadAllMeta());
       setVoteCounts(loadVoteCounts());
     })();
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -891,15 +873,15 @@ const App: React.FC = () => {
     try {
       // Use timestamp-based ID to guarantee no collision with delegated PDAs
       const nextId = Date.now() % 1_000_000; // 6-digit unique ID
-      const meta: GrantMeta = { name: submitName, desc: submitDesc, founder: submitFounder, twitter: submitTwitter, gitRepo: submitGitRepo, imageUrl: submitImageUrl, walletAddress: submitPubkey, askAmount: submitAskAmt };
-      const { roundId: confirmedId } = await decoProgram.createGrantRound(nextId, { name: submitName, desc: submitDesc, founder: submitFounder, twitter: submitTwitter, gitRepo: submitGitRepo, walletAddress: submitPubkey, askAmount: submitAskAmt });
+      await decoProgram.createGrantRound(nextId);
       // Track this round ID so fetchAllGrantRounds can find it even after delegation
       const knownIds: number[] = JSON.parse(localStorage.getItem('deco_round_ids') || '[]');
-      knownIds.push(confirmedId);
+      knownIds.push(nextId);
       localStorage.setItem('deco_round_ids', JSON.stringify(knownIds));
-      saveMeta(confirmedId, meta);
+      const meta: GrantMeta = { name: submitName, desc: submitDesc, founder: submitFounder, twitter: submitTwitter, gitRepo: submitGitRepo, imageUrl: submitImageUrl, walletAddress: submitPubkey, askAmount: submitAskAmt };
+      saveMeta(nextId, meta);
       setGrantMeta(loadAllMeta());
-      showToast('✅ Grant round created for ' + submitName + ' (Round #' + confirmedId + ')');
+      showToast('✅ Grant round created for ' + submitName + ' (Round #' + nextId + ')');
       setSubmitName(''); setSubmitDesc(''); setSubmitPubkey(''); setSubmitGitRepo('');
       setSubmitFounder(''); setSubmitTwitter(''); setSubmitAskAmt(''); setSubmitImageUrl(null);
       const rounds = await decoProgram.fetchAllGrantRounds();
