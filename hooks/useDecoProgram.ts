@@ -209,7 +209,7 @@ export function useDecoProgram() {
     tx.add(ix);
 
     const signed = await wallet.signTransaction(tx);
-    const sig = await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+    const sig = await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
 
     try {
       await erConn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
