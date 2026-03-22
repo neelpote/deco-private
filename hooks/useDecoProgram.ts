@@ -161,7 +161,7 @@ export function useDecoProgram() {
         delegationProgram: DELEGATION_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .rpc({ skipPreflight: true });
     console.log('delegateMemberVote tx:', tx);
     return tx;
   }, [baseProgram, wallet.publicKey, isAlreadyDelegated]);
@@ -188,7 +188,7 @@ export function useDecoProgram() {
         delegationProgram: DELEGATION_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .rpc({ skipPreflight: true });
     console.log('delegateGrantRound tx:', tx);
     return tx;
   }, [baseProgram, wallet.publicKey, isAlreadyDelegated]);
@@ -233,7 +233,12 @@ export function useDecoProgram() {
       tx = await (routerProgram.methods as any)
         .castVote(new BN(roundId), projectPubkey)
         .accounts({ memberVote: pda, grantRound: grantRoundPda, voter: wallet.publicKey })
-        .rpc({ blockhash, lastValidBlockHeight });
+        .rpc({ 
+          blockhash, 
+          lastValidBlockHeight,
+          skipPreflight: true,  // skip simulation — ER accounts appear unwritable to base chain simulator
+          preflightCommitment: 'confirmed',
+        });
     } catch (err: any) {
       const logs = err?.logs ?? err?.simulationResponse?.logs ?? [];
       if (logs.length) {
