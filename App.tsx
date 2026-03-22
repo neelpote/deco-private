@@ -55,14 +55,25 @@ function loadAllMeta(): Record<number, GrantMeta> {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     const result: Record<number, GrantMeta> = {};
-    for (const k of Object.keys(raw)) result[Number(k)] = raw[k];
+    for (const k of Object.keys(raw)) {
+      result[Number(k)] = raw[k];
+      const img = localStorage.getItem(`deco_img_${k}`);
+      if (img) result[Number(k)].imageUrl = img;
+    }
     return result;
   } catch { return {}; }
 }
 function saveMeta(roundId: number, meta: GrantMeta) {
+  // Store image separately to avoid quota issues with base64 data
+  const { imageUrl, ...rest } = meta;
+  if (imageUrl) {
+    try { localStorage.setItem(`deco_img_${roundId}`, imageUrl); } catch { /* image too large, skip */ }
+  }
   const all = loadAllMeta();
-  all[roundId] = meta;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  all[roundId] = { ...rest, imageUrl: undefined };
+  const lean: Record<number, any> = {};
+  for (const k of Object.keys(all)) lean[k] = { ...all[k], imageUrl: undefined };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(lean));
 }
 function clearAllMeta() { localStorage.removeItem(STORAGE_KEY); }
 
